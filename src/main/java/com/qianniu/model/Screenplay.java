@@ -9,9 +9,8 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Scene {
-    private int sceneNumber;
-    private SceneHeading heading;
-    private String synopsis;
-    private List<SceneElement> elements;
+public class Screenplay {
+    private ScreenplayMetadata metadata;
+    private List<Character> characters;
+    private List<Chapter> chapters;
 }

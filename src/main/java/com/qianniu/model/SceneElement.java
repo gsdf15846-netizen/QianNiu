@@ -10,8 +10,9 @@ import lombok.AllArgsConstructor;
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SceneElement {
-    private ElementType type;
+    /** action / dialogue / transition / note */
+    private String type;
     private String character;
+    private String parenthetical;
     private String content;
-    private String direction;
 }

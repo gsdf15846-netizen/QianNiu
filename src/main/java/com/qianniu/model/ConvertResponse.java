@@ -10,11 +10,11 @@ import lombok.NoArgsConstructor;
 public class ConvertResponse {
     private boolean success;
     private String yaml;
-    private Script script;
+    private Screenplay screenplay;
     private String message;
 
-    public static ConvertResponse ok(String yaml, Script script) {
-        return new ConvertResponse(true, yaml, script, null);
+    public static ConvertResponse ok(String yaml, Screenplay screenplay) {
+        return new ConvertResponse(true, yaml, screenplay, null);
     }
 
     public static ConvertResponse error(String message) {

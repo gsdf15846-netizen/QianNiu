@@ -9,10 +9,8 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Script {
+public class Chapter {
+    private int chapterNumber;
     private String title;
-    private String novelSource;
-    private String generatedAt;
-    private List<Character> characters;
     private List<Scene> scenes;
 }

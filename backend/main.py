@@ -3,8 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
-from anthropic import Anthropic, AuthenticationError, APIError
+from openai import OpenAI, AuthenticationError, APIError
 
 from schema import ConvertRequest, ConvertResponse
 from converter import convert_novel_to_screenplay, validate_and_serialize
@@ -24,28 +23,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-def get_client() -> Anthropic:
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key or api_key.startswith("sk-ant-xxx"):
-        raise HTTPException(status_code=500, detail="未配置 ANTHROPIC_API_KEY，请在 backend/.env 中填入有效的 API Key")
-    return Anthropic(api_key=api_key)
+
+def get_client() -> tuple[OpenAI, str]:
+    api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    if not api_key or api_key.startswith("sk-xxx"):
+        raise HTTPException(
+            status_code=500,
+            detail="未配置 DASHSCOPE_API_KEY，请在 backend/.env 中填入通义千问 API Key"
+        )
+    model = os.getenv("QWEN_MODEL", "qwen-plus")
+    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL)
+    return client, model
 
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": "1.0.0", "provider": "通义千问"}
 
 
 @app.post("/convert", response_model=ConvertResponse)
 async def convert_novel(request: ConvertRequest):
-    client = get_client()
+    client, model = get_client()
     try:
         data = convert_novel_to_screenplay(
             novel_text=request.novel_text,
             novel_title=request.novel_title,
             chapter_separator=request.chapter_separator,
             client=client,
+            model=model,
         )
         yaml_content, chapters_count, chars_count = validate_and_serialize(data)
         return ConvertResponse(
@@ -55,9 +62,9 @@ async def convert_novel(request: ConvertRequest):
             characters_detected=chars_count,
         )
     except AuthenticationError:
-        raise HTTPException(status_code=401, detail="API Key 无效，请检查 backend/.env 配置")
+        raise HTTPException(status_code=401, detail="API Key 无效，请检查 backend/.env 中的 DASHSCOPE_API_KEY")
     except APIError as e:
-        raise HTTPException(status_code=502, detail=f"Claude API 错误: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"通义千问 API 错误: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"转换失败: {str(e)}")
 

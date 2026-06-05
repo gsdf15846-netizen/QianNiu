@@ -15,7 +15,7 @@
 ### 环境要求
 
 - Python 3.10+
-- Anthropic API Key（[申请地址](https://console.anthropic.com/)）
+- 通义千问 API Key（[免费申请](https://dashscope.console.aliyun.com/apiKey)，注册阿里云账号即可）
 
 ### 安装与运行
 
@@ -30,10 +30,11 @@ pip install -r requirements.txt
 
 # 3. 配置 API Key
 cp .env.example .env
-# 编辑 .env，填入你的 ANTHROPIC_API_KEY
+# 编辑 .env，填入你的 DASHSCOPE_API_KEY
 
 # 4. 启动后端服务
 python main.py
+# 服务运行在 http://127.0.0.1:8000
 
 # 5. 打开前端
 # 直接用浏览器打开 frontend/index.html
@@ -99,7 +100,7 @@ screenplay:
 |------|------|------|
 | fastapi | ≥0.110 | Web 框架 |
 | uvicorn | ≥0.29 | ASGI 服务器 |
-| anthropic | ≥0.25 | Claude API SDK |
+| openai | ≥1.30 | 通义千问 API SDK（OpenAI 兼容格式）|
 | python-dotenv | ≥1.0 | 环境变量管理 |
 | pyyaml | ≥6.0 | YAML 序列化 |
 

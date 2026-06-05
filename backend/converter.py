@@ -142,13 +142,56 @@ def convert_novel_to_screenplay(
     elif "```" in response_text:
         response_text = response_text.split("```")[1].split("```")[0].strip()
 
-    return json.loads(response_text)
+    data = json.loads(response_text)
+    return _normalize_enums(data)
+
+
+_TIME_ALIASES = {
+    "MORNING": "MORNING",
+    "AFTERNOON": "AFTERNOON",
+    "EVENING": "EVENING",
+    "SUNRISE": "DAWN",
+    "SUNSET": "DUSK",
+    "MIDNIGHT": "NIGHT",
+    "DUSK": "DUSK",
+    "DAWN": "DAWN",
+    "DAY": "DAY",
+    "NIGHT": "NIGHT",
+    "CONTINUOUS": "CONTINUOUS",
+    "LATER": "LATER",
+    "MOMENTS LATER": "MOMENTS LATER",
+}
+
+_LOC_ALIASES = {
+    "INTERIOR": "INT",
+    "EXTERIOR": "EXT",
+    "INT": "INT",
+    "EXT": "EXT",
+    "INT/EXT": "INT/EXT",
+    "EXT/INT": "INT/EXT",
+}
+
+
+def _normalize_enums(data: dict) -> dict:
+    """Normalize any unexpected enum values returned by the AI to valid ones."""
+    try:
+        for chapter in data["screenplay"]["chapters"]:
+            for scene in chapter.get("scenes", []):
+                heading = scene.get("heading", {})
+                raw_time = heading.get("time", "DAY").upper()
+                heading["time"] = _TIME_ALIASES.get(raw_time, "DAY")
+                raw_loc = heading.get("location_type", "INT").upper()
+                heading["location_type"] = _LOC_ALIASES.get(raw_loc, "INT")
+    except (KeyError, TypeError):
+        pass
+    return data
 
 
 def validate_and_serialize(data: dict) -> tuple[str, int, int]:
     """Validate against Pydantic schema and serialize to YAML string."""
     wrapper = ScreenplayWrapper(**data)
-    screenplay_dict = wrapper.model_dump(mode="python", exclude_none=True)
+    # mode="json" serializes enums to their string values (no Python object tags)
+    screenplay_dict = wrapper.model_dump(mode="json", exclude_none=True)
 
     yaml_str = yaml.dump(
         screenplay_dict,

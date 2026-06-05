@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 小说转剧本工具</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <h1 class="logo">📽 AI 小说转剧本</h1>
+      <span class="subtitle">将小说自动转换为结构化 YAML 剧本初稿</span>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- 左侧：输入区 -->
+    <section class="panel panel-input">
+      <h2 class="panel-title">小说输入</h2>
+
+      <!-- 输入方式切换 -->
+      <div class="tab-group">
+        <button class="tab active" data-tab="paste">粘贴文本</button>
+        <button class="tab" data-tab="upload">上传文件</button>
+      </div>
+
+      <!-- 粘贴文本 -->
+      <div class="tab-content" id="tab-paste">
+        <textarea
+          id="novel-text"
+          class="textarea"
+          placeholder="在此粘贴小说文本（至少 3 个章节）&#10;&#10;支持的章节格式：&#10;• 第一章 标题&#10;• 第1章 标题&#10;• Chapter 1&#10;&#10;若章节格式特殊，请在下方填写章节分隔符。"
+          rows="18"
+        ></textarea>
+      </div>
+
+      <!-- 上传文件 -->
+      <div class="tab-content hidden" id="tab-upload">
+        <div class="upload-area" id="upload-area">
+          <div class="upload-icon">📄</div>
+          <p>拖拽 .txt 文件到此处</p>
+          <p class="upload-hint">或</p>
+          <label class="btn btn-secondary" for="file-input">选择文件</label>
+          <input type="file" id="file-input" accept=".txt" class="hidden" />
+          <p id="file-name" class="file-name"></p>
+        </div>
+      </div>
+
+      <!-- 配置区 -->
+      <div class="config-group">
+        <div class="config-row">
+          <label for="novel-title">小说标题（可选）</label>
+          <input type="text" id="novel-title" placeholder="如：青山不老" class="input-short" />
+        </div>
+        <div class="config-row">
+          <label for="chapter-sep">章节分隔符（可选）</label>
+          <input type="text" id="chapter-sep" placeholder="如：=== 或留空自动检测" class="input-short" />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="convert-btn">
+        <span id="btn-text">开始转换</span>
+        <span id="btn-loading" class="hidden">转换中…</span>
+      </button>
+
+      <div id="error-msg" class="error-msg hidden"></div>
+    </section>
+
+    <!-- 右侧：结果区 -->
+    <section class="panel panel-output">
+      <div class="output-header">
+        <h2 class="panel-title">YAML 剧本输出</h2>
+        <div class="output-actions hidden" id="output-actions">
+          <span class="stats" id="stats-text"></span>
+          <button class="btn btn-secondary btn-sm" id="copy-btn">复制</button>
+          <button class="btn btn-secondary btn-sm" id="download-btn">下载 .yaml</button>
+        </div>
+      </div>
+
+      <div id="output-placeholder" class="output-placeholder">
+        <div class="placeholder-icon">🎬</div>
+        <p>转换后的 YAML 剧本将在此显示</p>
+        <p class="placeholder-hint">支持直接编辑，可下载后进一步打磨</p>
+      </div>
+
+      <textarea
+        id="output-yaml"
+        class="textarea textarea-output hidden"
+        spellcheck="false"
+        rows="28"
+      ></textarea>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>基于 <a href="https://anthropic.com" target="_blank">Claude API</a> 构建 ·
+       <a href="../docs/yaml-schema.md" target="_blank">YAML Schema 文档</a> ·
+       <a href="https://github.com/gsdf15846-netizen/QianNiu" target="_blank">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

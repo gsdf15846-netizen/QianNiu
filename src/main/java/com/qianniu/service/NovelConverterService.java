@@ -1,7 +1,14 @@
-package com.qianniu.service;
+﻿package com.qianniu.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.qianniu.model.*;
+import com.qianniu.model.Chapter;
+import com.qianniu.model.Character;
+import com.qianniu.model.ConvertResponse;
+import com.qianniu.model.Scene;
+import com.qianniu.model.SceneElement;
+import com.qianniu.model.SceneHeading;
+import com.qianniu.model.Screenplay;
+import com.qianniu.model.ScreenplayMetadata;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.DumperOptions;
@@ -9,6 +16,8 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,12 +92,13 @@ public class NovelConverterService {
         this.objectMapper = objectMapper;
     }
 
+    @SuppressWarnings("unchecked")
     public ConvertResponse convert(String novelTitle, String novelText) {
         try {
             String rawJson = qwenService.chat(SYSTEM_PROMPT, novelText);
             String cleanJson = extractJson(rawJson);
 
-            Map<?, ?> parsed = objectMapper.readValue(cleanJson, Map.class);
+            Map<String, Object> parsed = (Map<String, Object>) objectMapper.readValue(cleanJson, Map.class);
             Screenplay screenplay = mapToScreenplay(parsed, novelTitle);
             String yaml = toYaml(screenplay);
 
@@ -115,9 +125,9 @@ public class NovelConverterService {
     }
 
     @SuppressWarnings("unchecked")
-    private Screenplay mapToScreenplay(Map<?, ?> map, String defaultTitle) {
-        // --- metadata ---
-        Map<String, Object> meta = (Map<String, Object>) map.getOrDefault("metadata", Map.of());
+    private Screenplay mapToScreenplay(Map<String, Object> map, String defaultTitle) {
+        // metadata
+        Map<String, Object> meta = castMap(map.get("metadata"));
         String now = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         ScreenplayMetadata metadata = new ScreenplayMetadata(
                 str(meta, "title", defaultTitle),
@@ -127,46 +137,51 @@ public class NovelConverterService {
                 toInt(meta.get("total_chapters"), 1)
         );
 
-        // --- characters ---
-        List<Character> characters = ((List<Map<String, Object>>) map.getOrDefault("characters", List.of()))
-                .stream().map(c -> new Character(
-                        str(c, "id", "char_001"),
-                        str(c, "name", "未知"),
-                        (List<String>) c.getOrDefault("aliases", List.of()),
-                        str(c, "description", "")
-                )).toList();
+        // characters
+        List<Character> characters = new ArrayList<>();
+        for (Map<String, Object> c : castList(map.get("characters"))) {
+            List<String> aliases = (List<String>) c.getOrDefault("aliases", Collections.emptyList());
+            characters.add(new Character(
+                    str(c, "id", "char_001"),
+                    str(c, "name", "未知"),
+                    aliases,
+                    str(c, "description", "")
+            ));
+        }
 
-        // --- chapters ---
-        List<Chapter> chapters = ((List<Map<String, Object>>) map.getOrDefault("chapters", List.of()))
-                .stream().map(ch -> {
-                    List<Scene> scenes = ((List<Map<String, Object>>) ch.getOrDefault("scenes", List.of()))
-                            .stream().map(s -> {
-                                Map<String, Object> h = (Map<String, Object>) s.getOrDefault("heading", Map.of());
-                                SceneHeading heading = new SceneHeading(
-                                        str(h, "location_type", "INT"),
-                                        str(h, "place", ""),
-                                        str(h, "time", "DAY")
-                                );
-                                List<SceneElement> elements = ((List<Map<String, Object>>) s.getOrDefault("elements", List.of()))
-                                        .stream().map(e -> new SceneElement(
-                                                str(e, "type", "action"),
-                                                (String) e.get("character"),
-                                                (String) e.get("parenthetical"),
-                                                str(e, "content", "")
-                                        )).toList();
-                                return new Scene(
-                                        toInt(s.get("scene_number"), 1),
-                                        heading,
-                                        str(s, "synopsis", ""),
-                                        elements
-                                );
-                            }).toList();
-                    return new Chapter(
-                            toInt(ch.get("chapter_number"), 1),
-                            str(ch, "title", ""),
-                            scenes
-                    );
-                }).toList();
+        // chapters
+        List<Chapter> chapters = new ArrayList<>();
+        for (Map<String, Object> ch : castList(map.get("chapters"))) {
+            List<Scene> scenes = new ArrayList<>();
+            for (Map<String, Object> s : castList(ch.get("scenes"))) {
+                Map<String, Object> h = castMap(s.get("heading"));
+                SceneHeading heading = new SceneHeading(
+                        str(h, "location_type", "INT"),
+                        str(h, "place", ""),
+                        str(h, "time", "DAY")
+                );
+                List<SceneElement> elements = new ArrayList<>();
+                for (Map<String, Object> e : castList(s.get("elements"))) {
+                    elements.add(new SceneElement(
+                            str(e, "type", "action"),
+                            (String) e.get("character"),
+                            (String) e.get("parenthetical"),
+                            str(e, "content", "")
+                    ));
+                }
+                scenes.add(new Scene(
+                        toInt(s.get("scene_number"), 1),
+                        heading,
+                        str(s, "synopsis", ""),
+                        elements
+                ));
+            }
+            chapters.add(new Chapter(
+                    toInt(ch.get("chapter_number"), 1),
+                    str(ch, "title", ""),
+                    scenes
+            ));
+        }
 
         return new Screenplay(metadata, characters, chapters);
     }
@@ -188,7 +203,6 @@ public class NovelConverterService {
     private Map<String, Object> buildScreenplayMap(Screenplay sp) {
         Map<String, Object> map = new LinkedHashMap<>();
 
-        // metadata
         ScreenplayMetadata m = sp.getMetadata();
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("title", m.getTitle());
@@ -198,17 +212,15 @@ public class NovelConverterService {
         meta.put("total_chapters", m.getTotalChapters());
         map.put("metadata", meta);
 
-        // characters
         map.put("characters", sp.getCharacters().stream().map(c -> {
             Map<String, Object> cm = new LinkedHashMap<>();
             cm.put("id", c.getId());
             cm.put("name", c.getName());
-            cm.put("aliases", c.getAliases() != null ? c.getAliases() : List.of());
+            cm.put("aliases", c.getAliases() != null ? c.getAliases() : Collections.emptyList());
             cm.put("description", c.getDescription());
             return cm;
-        }).toList());
+        }).collect(java.util.stream.Collectors.toList()));
 
-        // chapters
         map.put("chapters", sp.getChapters().stream().map(ch -> {
             Map<String, Object> chm = new LinkedHashMap<>();
             chm.put("chapter_number", ch.getChapterNumber());
@@ -216,14 +228,12 @@ public class NovelConverterService {
             chm.put("scenes", ch.getScenes().stream().map(s -> {
                 Map<String, Object> sm = new LinkedHashMap<>();
                 sm.put("scene_number", s.getSceneNumber());
-
                 SceneHeading hd = s.getHeading();
                 Map<String, Object> hdm = new LinkedHashMap<>();
                 hdm.put("location_type", hd.getLocationType());
                 hdm.put("place", hd.getPlace());
                 hdm.put("time", hd.getTime());
                 sm.put("heading", hdm);
-
                 sm.put("synopsis", s.getSynopsis());
                 sm.put("elements", s.getElements().stream().map(e -> {
                     Map<String, Object> em = new LinkedHashMap<>();
@@ -232,23 +242,39 @@ public class NovelConverterService {
                     if (e.getParenthetical() != null) em.put("parenthetical", e.getParenthetical());
                     em.put("content", e.getContent());
                     return em;
-                }).toList());
+                }).collect(java.util.stream.Collectors.toList()));
                 return sm;
-            }).toList());
+            }).collect(java.util.stream.Collectors.toList()));
             return chm;
-        }).toList());
+        }).collect(java.util.stream.Collectors.toList()));
 
         return map;
     }
 
-    private static String str(Map<?, ?> map, String key, String def) {
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMap(Object o) {
+        if (o instanceof Map) {
+            return (Map<String, Object>) o;
+        }
+        return new LinkedHashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> castList(Object o) {
+        if (o instanceof List) {
+            return (List<Map<String, Object>>) o;
+        }
+        return Collections.emptyList();
+    }
+
+    private static String str(Map<String, Object> map, String key, String def) {
         Object v = map.get(key);
-        return v instanceof String s ? s : def;
+        return v instanceof String ? (String) v : def;
     }
 
     private static int toInt(Object v, int def) {
-        if (v instanceof Integer i) return i;
-        if (v instanceof Number n) return n.intValue();
+        if (v instanceof Integer) return (Integer) v;
+        if (v instanceof Number) return ((Number) v).intValue();
         return def;
     }
 }

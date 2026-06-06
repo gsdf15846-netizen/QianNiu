@@ -16,7 +16,7 @@ spring:
       host: localhost
       port: 6379
       password: ${REDIS_PASSWORD:123456}
-      database: 0          # 使用 db 0，与其他项目的 db 1 隔离
+      database: 4
       timeout: 2s
       lettuce:
         pool:

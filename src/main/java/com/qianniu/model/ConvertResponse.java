@@ -12,12 +12,22 @@ public class ConvertResponse {
     private String yaml;
     private Screenplay screenplay;
     private String message;
+    /** 本次转换的唯一 ID，24h 内可用于断点续传 */
+    private String conversionId;
 
-    public static ConvertResponse ok(String yaml, Screenplay screenplay) {
-        return new ConvertResponse(true, yaml, screenplay, null);
+    public static ConvertResponse ok(String yaml, Screenplay screenplay, String conversionId) {
+        ConvertResponse r = new ConvertResponse();
+        r.success = true;
+        r.yaml = yaml;
+        r.screenplay = screenplay;
+        r.conversionId = conversionId;
+        return r;
     }
 
     public static ConvertResponse error(String message) {
-        return new ConvertResponse(false, null, null, message);
+        ConvertResponse r = new ConvertResponse();
+        r.success = false;
+        r.message = message;
+        return r;
     }
 }

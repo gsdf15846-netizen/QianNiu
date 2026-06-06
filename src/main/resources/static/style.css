@@ -230,3 +230,100 @@ body {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 续传 ID 输入 ─────────────────────────────────────────────────────────── */
+.resume-input {
+    margin: 6px 16px 0;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    outline: none;
+    color: var(--muted);
+    transition: border-color 0.2s, color 0.2s;
+    width: calc(100% - 32px);
+}
+.resume-input:focus { border-color: var(--primary); color: var(--text); }
+
+/* ── 转换 ID 徽章 ─────────────────────────────────────────────────────────── */
+.conv-id-badge {
+    margin: 8px 16px 0;
+    padding: 8px 12px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.conv-id-badge code {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.78rem;
+    word-break: break-all;
+}
+
+/* ── 历史记录区块 ─────────────────────────────────────────────────────────── */
+.history-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    margin-bottom: 40px;
+}
+
+.history-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+.history-item:last-child { border-bottom: none; }
+.history-item:hover { background: #f8fafc; }
+
+.history-item-info { flex: 1; min-width: 0; }
+
+.history-item-title {
+    font-weight: 500;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-item-meta {
+    font-size: 0.77rem;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+/* 状态徽章 */
+.badge {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.badge-completed { background: #ecfdf5; color: var(--success); }
+.badge-progress  { background: #fffbeb; color: #d97706; }
+.badge-failed    { background: #fef2f2; color: var(--error); }
+
+.history-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.resume-btn { color: var(--primary); border-color: var(--primary); }
+.resume-btn:hover { background: #eef2ff; }
+
+.del-btn:hover { color: var(--error); border-color: var(--error); background: #fef2f2; }

@@ -10,7 +10,7 @@
 <div class="app">
     <header class="header">
         <h1>AI 小说转剧本工具</h1>
-        <p class="subtitle">将小说文本自动转换为标准 YAML 剧本格式</p>
+        <p class="subtitle">将小说文本自动转换为标准 YAML 剧本格式，支持多章节长文本</p>
     </header>
 
     <main class="main">
@@ -24,11 +24,14 @@
             </div>
 
             <input type="text" id="titleInput" class="title-input" placeholder="剧本标题（可选）">
+            <input type="text" id="resumeInput" class="resume-input"
+                   placeholder="续传ID（可选）— 填入上次中断的转换ID，跳过已完成的章节">
 
             <textarea id="novelInput" class="novel-input"
                       placeholder="粘贴小说文本到此处，或点击右上角上传 .txt 文件...
 
-支持多章节长文本，自动按章节分批调用 AI，保持人物和情节连贯。"></textarea>
+支持多章节长文本，自动按章节分批调用 AI，保持人物和情节连贯。
+中途中断？填入上方续传ID后重新提交即可继续。"></textarea>
 
             <div class="action-bar">
                 <span id="charCount" class="char-count">0 字</span>
@@ -46,19 +49,34 @@
             </div>
 
             <div id="statusMsg" class="status-msg hidden"></div>
+            <div id="convIdBadge" class="conv-id-badge hidden">
+                <span>转换ID（24h内可续传）：<code id="convIdText"></code></span>
+                <button class="action-btn" onclick="copyConvId()">复制ID</button>
+            </div>
 
             <pre id="yamlOutput" class="yaml-output">等待转换...</pre>
         </div>
     </main>
 
+    <!-- 历史记录 -->
+    <section class="history-section">
+        <div class="panel-header">
+            <h2>历史记录</h2>
+            <button class="action-btn" onclick="loadHistory()">刷新</button>
+        </div>
+        <div id="historyList">
+            <div class="history-empty">正在加载历史记录...</div>
+        </div>
+    </section>
+
     <footer class="footer">
-        <p>基于 Qwen AI | AI 生成内容仅供参考，请作者自行审阅修改</p>
+        <p>基于 Qwen AI · AI 生成内容仅供参考，请作者自行审阅修改</p>
     </footer>
 </div>
 
 <div id="loadingOverlay" class="loading-overlay hidden">
     <div class="spinner"></div>
-    <p>AI 正在改编中，请稍候...</p>
+    <p id="loadingText">AI 正在逐章改编，章节越多耗时越长，请耐心等候...</p>
 </div>
 
 <script src="app.js"></script>

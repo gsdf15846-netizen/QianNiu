@@ -40,7 +40,7 @@ public class QwenService {
                         Map.of("role", "user", "content", userMessage)
                 ),
                 "temperature", 0.3,
-                "max_tokens", 4000
+                "max_tokens", 6000
         );
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);

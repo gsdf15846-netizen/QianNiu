@@ -16,17 +16,17 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class NovelConverterService {
+
+    // 每个 API 调用的最大输入字符数（超出则按段落边界切割）
+    private static final int CHUNK_SIZE = 3000;
 
     private static final String SYSTEM_PROMPT = """
             你是一位专业的剧本改编专家，精通将中文小说改编为标准影视剧本格式。
@@ -36,42 +36,26 @@ public class NovelConverterService {
             2. 将叙述性文字转为简洁客观的动作描述（action）
             3. 直接引用原文对白作为台词（dialogue），保持人物语气
             4. 根据地点/时间变化合理分割场景
-            5. 识别所有出场人物，整理人物表，记录别名
+            5. 沿用已知人物表中的 id 和 name，不重复创建已有人物
 
             输出格式：严格的 JSON（不加任何额外文字或代码块标记），结构如下：
             {
-              "metadata": {
-                "title": "剧本标题",
-                "source_novel": "原著名称或章节名",
-                "author": "AI辅助生成",
-                "created_at": "ISO8601时间",
-                "total_chapters": 章节数整数
-              },
-              "characters": [
-                {"id": "char_001", "name": "姓名", "aliases": ["别名1","别名2"], "description": "人物简介"}
-              ],
-              "chapters": [
+              "scenes": [
                 {
-                  "chapter_number": 1,
-                  "title": "章节标题",
-                  "scenes": [
-                    {
-                      "scene_number": 1,
-                      "heading": {
-                        "location_type": "INT",
-                        "place": "具体地点",
-                        "time": "DAY"
-                      },
-                      "synopsis": "本场景一句话概要",
-                      "elements": [
-                        {"type": "action", "content": "动作描述（客观第三人称）"},
-                        {"type": "dialogue", "character": "角色名", "parenthetical": "可选表演指导", "content": "台词"},
-                        {"type": "transition", "content": "切入——"}
-                      ]
-                    }
+                  "scene_number": 1,
+                  "heading": {"location_type": "INT", "place": "具体地点", "time": "DAY"},
+                  "synopsis": "本场景一句话概要",
+                  "elements": [
+                    {"type": "action", "content": "动作描述"},
+                    {"type": "dialogue", "character": "角色名", "parenthetical": "可选", "content": "台词"},
+                    {"type": "transition", "content": "切入——"}
                   ]
                 }
-              ]
+              ],
+              "new_characters": [
+                {"id": "char_001", "name": "姓名", "aliases": [], "description": "人物简介"}
+              ],
+              "chunk_synopsis": "本段内容一句话概括"
             }
 
             字段约束（必须严格遵守）：
@@ -81,7 +65,7 @@ public class NovelConverterService {
             - dialogue 的 parenthetical 字段可省略不写
             - aliases 可为空列表 []
             - synopsis 每个场景必填，一句话概括
-            - chapter_number 和 scene_number 必须是整数
+            - scene_number 必须是整数
             - 只输出合法 JSON""";
 
     private final QwenService qwenService;
@@ -92,99 +76,261 @@ public class NovelConverterService {
         this.objectMapper = objectMapper;
     }
 
-    @SuppressWarnings("unchecked")
+    // ─── Public API ────────────────────────────────────────────────────────────
+
     public ConvertResponse convert(String novelTitle, String novelText) {
         try {
-            String rawJson = qwenService.chat(SYSTEM_PROMPT, novelText);
-            String cleanJson = extractJson(rawJson);
+            List<ChapterText> chapterTexts = splitChapters(novelText);
+            log.info("Detected {} chapter(s)", chapterTexts.size());
 
-            Map<String, Object> parsed = (Map<String, Object>) objectMapper.readValue(cleanJson, Map.class);
-            Screenplay screenplay = mapToScreenplay(parsed, novelTitle);
-            String yaml = toYaml(screenplay);
+            List<Character> allCharacters = new ArrayList<>();
+            List<String> chapterSynopses = new ArrayList<>();
+            List<Chapter> chapters = new ArrayList<>();
 
-            return ConvertResponse.ok(yaml, screenplay);
+            for (int i = 0; i < chapterTexts.size(); i++) {
+                String plotSoFar = buildPlotSummary(chapterTexts, chapterSynopses);
+                ChapterResult result = processChapter(chapterTexts.get(i), allCharacters, plotSoFar);
+                chapters.add(result.chapter);
+                chapterSynopses.add(result.synopsis);
+                log.info("Chapter {} done: {} scene(s)", result.chapter.getChapterNumber(),
+                        result.chapter.getScenes().size());
+            }
+
+            String now = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            ScreenplayMetadata metadata = new ScreenplayMetadata(
+                    novelTitle, novelTitle, "AI辅助生成", now, chapters.size());
+            Screenplay screenplay = new Screenplay(metadata, allCharacters, chapters);
+            return ConvertResponse.ok(toYaml(screenplay), screenplay);
+
         } catch (Exception e) {
             log.error("Conversion failed", e);
             return ConvertResponse.error("转换失败：" + e.getMessage());
         }
     }
 
-    private String extractJson(String raw) {
-        String text = raw.trim();
-        Pattern fence = Pattern.compile("```(?:json)?\\s*([\\s\\S]*?)```");
-        Matcher m = fence.matcher(text);
-        if (m.find()) {
-            return m.group(1).trim();
+    // ─── Internal records ──────────────────────────────────────────────────────
+
+    private record ChapterText(int number, String title, String text) {}
+    private record ChapterResult(Chapter chapter, String synopsis) {}
+    private record ChunkResult(List<Scene> scenes, List<Character> newCharacters, String synopsis) {}
+
+    // ─── Chapter splitting ─────────────────────────────────────────────────────
+
+    private List<ChapterText> splitChapters(String text) {
+        Pattern pattern = Pattern.compile(
+                "(?m)^(第[一二三四五六七八九十百千零0-9]+[章节回篇][ \\t]*[^\\n]*)",
+                Pattern.MULTILINE);
+        Matcher m = pattern.matcher(text);
+
+        List<int[]> positions = new ArrayList<>();
+        List<String> titles = new ArrayList<>();
+        while (m.find()) {
+            positions.add(new int[]{m.start(), m.end()});
+            titles.add(m.group(1).trim());
         }
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return text.substring(start, end + 1);
+
+        if (positions.isEmpty()) {
+            return List.of(new ChapterText(1, firstLine(text), text.trim()));
         }
-        return text;
+
+        List<ChapterText> result = new ArrayList<>();
+        for (int i = 0; i < positions.size(); i++) {
+            int bodyStart = positions.get(i)[1];
+            int bodyEnd = (i + 1 < positions.size()) ? positions.get(i + 1)[0] : text.length();
+            String body = text.substring(bodyStart, bodyEnd).trim();
+            result.add(new ChapterText(i + 1, titles.get(i), body));
+        }
+        return result;
+    }
+
+    private String firstLine(String text) {
+        for (String line : text.split("\\n")) {
+            String s = line.trim();
+            if (!s.isEmpty()) return s.length() > 20 ? s.substring(0, 20) : s;
+        }
+        return "全文";
+    }
+
+    // ─── Chunk splitting ───────────────────────────────────────────────────────
+
+    private List<String> splitIntoChunks(String text) {
+        if (text.length() <= CHUNK_SIZE) {
+            return List.of(text);
+        }
+
+        List<String> chunks = new ArrayList<>();
+        int start = 0;
+        while (start < text.length()) {
+            int end = Math.min(start + CHUNK_SIZE, text.length());
+            if (end < text.length()) {
+                // 优先在段落边界（空行）处切割
+                int lastParaBreak = text.lastIndexOf("\n\n", end);
+                if (lastParaBreak > start + CHUNK_SIZE / 2) {
+                    end = lastParaBreak;
+                } else {
+                    // 退而求其次，在句末标点处切割
+                    int lastSentence = Math.max(
+                            text.lastIndexOf("。", end),
+                            Math.max(text.lastIndexOf("！", end), text.lastIndexOf("？", end)));
+                    if (lastSentence > start + CHUNK_SIZE / 2) {
+                        end = lastSentence + 1;
+                    }
+                }
+            }
+            String chunk = text.substring(start, end).trim();
+            if (!chunk.isEmpty()) chunks.add(chunk);
+            start = end;
+            while (start < text.length() && text.charAt(start) == '\n') start++;
+        }
+        return chunks;
+    }
+
+    // ─── Chapter processing ────────────────────────────────────────────────────
+
+    private ChapterResult processChapter(ChapterText ct, List<Character> allCharacters, String plotSoFar)
+            throws Exception {
+        List<String> chunks = splitIntoChunks(ct.text);
+        log.info("Chapter {} '{}': {} chunk(s)", ct.number, ct.title, chunks.size());
+
+        List<Scene> scenes = new ArrayList<>();
+        StringBuilder chapterSynopsis = new StringBuilder();
+        String prevChunkSynopsis = "";
+
+        for (int i = 0; i < chunks.size(); i++) {
+            String userMsg = buildUserMessage(
+                    ct, i, chunks.size(), scenes.size() + 1,
+                    allCharacters, plotSoFar, prevChunkSynopsis, chunks.get(i));
+
+            String rawJson = qwenService.chat(SYSTEM_PROMPT, userMsg);
+            ChunkResult cr = parseChunkResult(rawJson, scenes.size() + 1);
+
+            scenes.addAll(cr.scenes);
+            mergeCharacters(allCharacters, cr.newCharacters);
+
+            prevChunkSynopsis = cr.synopsis;
+            if (chapterSynopsis.length() > 0) chapterSynopsis.append("；");
+            chapterSynopsis.append(cr.synopsis);
+        }
+
+        return new ChapterResult(new Chapter(ct.number, ct.title, scenes), chapterSynopsis.toString());
+    }
+
+    // ─── Prompt building ───────────────────────────────────────────────────────
+
+    private String buildUserMessage(ChapterText ct, int chunkIndex, int totalChunks,
+                                    int sceneNumberStart, List<Character> knownChars,
+                                    String plotSoFar, String prevChunkSynopsis, String chunkText) {
+        StringBuilder sb = new StringBuilder();
+
+        if (!knownChars.isEmpty()) {
+            sb.append("【已知人物表】（请沿用已有人物的 id 和 name，不要重复创建）\n");
+            for (Character c : knownChars) {
+                sb.append(c.getId()).append(" ").append(c.getName())
+                        .append("：").append(c.getDescription()).append("\n");
+            }
+            sb.append("\n");
+        }
+
+        if (!plotSoFar.isBlank()) {
+            sb.append("【前情提要】\n").append(plotSoFar).append("\n");
+        }
+
+        if (!prevChunkSynopsis.isBlank()) {
+            sb.append("【本章前段概要】\n").append(prevChunkSynopsis).append("\n\n");
+        }
+
+        sb.append("【当前任务】\n");
+        sb.append("将以下文字改编为剧本。\n");
+        sb.append("章节：第").append(ct.number).append("章《").append(ct.title).append("》");
+        if (totalChunks > 1) {
+            sb.append("，第").append(chunkIndex + 1).append("段（共").append(totalChunks).append("段）");
+        }
+        sb.append("\nscene_number 从 ").append(sceneNumberStart).append(" 开始编号\n\n");
+
+        sb.append("【原文】\n").append(chunkText);
+        return sb.toString();
+    }
+
+    // ─── Response parsing ──────────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private ChunkResult parseChunkResult(String rawJson, int sceneNumberStart) {
+        try {
+            String cleanJson = extractJson(rawJson);
+            Map<String, Object> parsed = objectMapper.readValue(cleanJson, Map.class);
+
+            List<Scene> scenes = parseScenes(castList(parsed.get("scenes")), sceneNumberStart);
+            List<Character> newChars = parseNewCharacters(castList(parsed.get("new_characters")));
+            String synopsis = str(parsed, "chunk_synopsis", "");
+
+            return new ChunkResult(scenes, newChars, synopsis);
+        } catch (Exception e) {
+            log.warn("Failed to parse chunk result, skipping chunk: {}", e.getMessage());
+            return new ChunkResult(Collections.emptyList(), Collections.emptyList(), "");
+        }
+    }
+
+    private List<Scene> parseScenes(List<Map<String, Object>> rawScenes, int sceneNumberStart) {
+        List<Scene> scenes = new ArrayList<>();
+        int sceneNum = sceneNumberStart;
+        for (Map<String, Object> s : rawScenes) {
+            Map<String, Object> h = castMap(s.get("heading"));
+            SceneHeading heading = new SceneHeading(
+                    str(h, "location_type", "INT"),
+                    str(h, "place", ""),
+                    str(h, "time", "DAY"));
+            List<SceneElement> elements = new ArrayList<>();
+            for (Map<String, Object> e : castList(s.get("elements"))) {
+                elements.add(new SceneElement(
+                        str(e, "type", "action"),
+                        (String) e.get("character"),
+                        (String) e.get("parenthetical"),
+                        str(e, "content", "")));
+            }
+            scenes.add(new Scene(sceneNum++, heading, str(s, "synopsis", ""), elements));
+        }
+        return scenes;
     }
 
     @SuppressWarnings("unchecked")
-    private Screenplay mapToScreenplay(Map<String, Object> map, String defaultTitle) {
-        // metadata
-        Map<String, Object> meta = castMap(map.get("metadata"));
-        String now = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-        ScreenplayMetadata metadata = new ScreenplayMetadata(
-                str(meta, "title", defaultTitle),
-                str(meta, "source_novel", defaultTitle),
-                str(meta, "author", "AI辅助生成"),
-                str(meta, "created_at", now),
-                toInt(meta.get("total_chapters"), 1)
-        );
-
-        // characters
-        List<Character> characters = new ArrayList<>();
-        for (Map<String, Object> c : castList(map.get("characters"))) {
-            List<String> aliases = (List<String>) c.getOrDefault("aliases", Collections.emptyList());
-            characters.add(new Character(
-                    str(c, "id", "char_001"),
-                    str(c, "name", "未知"),
-                    aliases,
-                    str(c, "description", "")
-            ));
+    private List<Character> parseNewCharacters(List<Map<String, Object>> rawChars) {
+        List<Character> result = new ArrayList<>();
+        for (Map<String, Object> c : rawChars) {
+            List<String> aliases = c.get("aliases") instanceof List
+                    ? (List<String>) c.get("aliases") : Collections.emptyList();
+            result.add(new Character(str(c, "id", ""), str(c, "name", ""), aliases, str(c, "description", "")));
         }
-
-        // chapters
-        List<Chapter> chapters = new ArrayList<>();
-        for (Map<String, Object> ch : castList(map.get("chapters"))) {
-            List<Scene> scenes = new ArrayList<>();
-            for (Map<String, Object> s : castList(ch.get("scenes"))) {
-                Map<String, Object> h = castMap(s.get("heading"));
-                SceneHeading heading = new SceneHeading(
-                        str(h, "location_type", "INT"),
-                        str(h, "place", ""),
-                        str(h, "time", "DAY")
-                );
-                List<SceneElement> elements = new ArrayList<>();
-                for (Map<String, Object> e : castList(s.get("elements"))) {
-                    elements.add(new SceneElement(
-                            str(e, "type", "action"),
-                            (String) e.get("character"),
-                            (String) e.get("parenthetical"),
-                            str(e, "content", "")
-                    ));
-                }
-                scenes.add(new Scene(
-                        toInt(s.get("scene_number"), 1),
-                        heading,
-                        str(s, "synopsis", ""),
-                        elements
-                ));
-            }
-            chapters.add(new Chapter(
-                    toInt(ch.get("chapter_number"), 1),
-                    str(ch, "title", ""),
-                    scenes
-            ));
-        }
-
-        return new Screenplay(metadata, characters, chapters);
+        return result;
     }
+
+    // ─── Character merging ─────────────────────────────────────────────────────
+
+    private void mergeCharacters(List<Character> existing, List<Character> newChars) {
+        Set<String> existingNames = existing.stream()
+                .map(c -> c.getName().toLowerCase())
+                .collect(Collectors.toSet());
+        for (Character nc : newChars) {
+            if (nc.getName().isBlank() || existingNames.contains(nc.getName().toLowerCase())) continue;
+            String id = String.format("char_%03d", existing.size() + 1);
+            existing.add(new Character(id, nc.getName(), nc.getAliases(), nc.getDescription()));
+            existingNames.add(nc.getName().toLowerCase());
+        }
+    }
+
+    // ─── Plot summary ──────────────────────────────────────────────────────────
+
+    private String buildPlotSummary(List<ChapterText> allChapters, List<String> synopses) {
+        if (synopses.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < synopses.size(); i++) {
+            sb.append("第").append(allChapters.get(i).number()).append("章《")
+                    .append(allChapters.get(i).title()).append("》：")
+                    .append(synopses.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    // ─── YAML serialization ────────────────────────────────────────────────────
 
     private String toYaml(Screenplay sp) {
         DumperOptions opts = new DumperOptions();
@@ -219,7 +365,7 @@ public class NovelConverterService {
             cm.put("aliases", c.getAliases() != null ? c.getAliases() : Collections.emptyList());
             cm.put("description", c.getDescription());
             return cm;
-        }).collect(java.util.stream.Collectors.toList()));
+        }).collect(Collectors.toList()));
 
         map.put("chapters", sp.getChapters().stream().map(ch -> {
             Map<String, Object> chm = new LinkedHashMap<>();
@@ -242,39 +388,40 @@ public class NovelConverterService {
                     if (e.getParenthetical() != null) em.put("parenthetical", e.getParenthetical());
                     em.put("content", e.getContent());
                     return em;
-                }).collect(java.util.stream.Collectors.toList()));
+                }).collect(Collectors.toList()));
                 return sm;
-            }).collect(java.util.stream.Collectors.toList()));
+            }).collect(Collectors.toList()));
             return chm;
-        }).collect(java.util.stream.Collectors.toList()));
+        }).collect(Collectors.toList()));
 
         return map;
     }
 
+    // ─── Helpers ───────────────────────────────────────────────────────────────
+
+    private String extractJson(String raw) {
+        String text = raw.trim();
+        Pattern fence = Pattern.compile("```(?:json)?\\s*([\\s\\S]*?)```");
+        Matcher matcher = fence.matcher(text);
+        if (matcher.find()) return matcher.group(1).trim();
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) return text.substring(start, end + 1);
+        return text;
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> castMap(Object o) {
-        if (o instanceof Map) {
-            return (Map<String, Object>) o;
-        }
-        return new LinkedHashMap<>();
+        return o instanceof Map ? (Map<String, Object>) o : new LinkedHashMap<>();
     }
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> castList(Object o) {
-        if (o instanceof List) {
-            return (List<Map<String, Object>>) o;
-        }
-        return Collections.emptyList();
+        return o instanceof List ? (List<Map<String, Object>>) o : Collections.emptyList();
     }
 
-    private static String str(Map<String, Object> map, String key, String def) {
+    private static String str(Map<?, ?> map, String key, String def) {
         Object v = map.get(key);
         return v instanceof String ? (String) v : def;
-    }
-
-    private static int toInt(Object v, int def) {
-        if (v instanceof Integer) return (Integer) v;
-        if (v instanceof Number) return ((Number) v).intValue();
-        return def;
     }
 }

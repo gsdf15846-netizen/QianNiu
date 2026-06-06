@@ -1,109 +1,130 @@
 # AI 小说转剧本工具
 
-将中文小说文本自动转换为结构化 YAML 剧本，助力作者快速获得可编辑的剧本初稿。
+> 将中文小说文本一键转换为标准 YAML 剧本格式，降低改编门槛，助力作者快速获得可编辑的剧本初稿。
+
+## Demo 视频
+
+> 视频录制完成后链接将更新至此处（Bilibili）
 
 ## 功能特性
 
-- 支持 3 个章节以上的小说文本输入（粘贴或上传 .txt）
-- 自动识别人物、场景、对白和动作描述
-- 输出符合标准 Schema 的 YAML 格式剧本
-- 支持下载 `.yaml` 文件，可直接二次编辑打磨
-- 内置人物表自动提取
+- **智能改编**：基于 Qwen AI，自动识别场景、人物、对白，转换为标准剧本元素
+- **YAML 输出**：结构化、可读性强，便于作者在任意编辑器中打磨修改
+- **文件上传**：支持直接上传 `.txt` 文件批量转换
+- **一键下载**：转换结果可直接下载为 `.yaml` 文件
+- **Web 界面**：无需安装任何客户端，浏览器即用
 
-## 快速开始
+## 技术栈
 
-### 环境要求
+| 层 | 技术 |
+|----|------|
+| 后端 | Java 17 + Spring Boot 3.3 |
+| AI   | Qwen（通义千问）OpenAI 兼容 API |
+| 序列化 | Jackson（JSON）+ SnakeYAML（YAML） |
+| 前端 | 原生 HTML5 + CSS3 + JavaScript（无构建步骤） |
 
-- Python 3.10+
-- 通义千问 API Key（[免费申请](https://dashscope.console.aliyun.com/apiKey)，注册阿里云账号即可）
+## 本地运行
 
-### 安装与运行
+### 前置条件
+
+- JDK 17+
+- Maven 3.8+
+- DashScope API Key（[申请地址](https://dashscope.aliyun.com/)）
+
+### 步骤
 
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/gsdf15846-netizen/QianNiu.git
 cd QianNiu
 
-# 2. 安装后端依赖
-cd backend
-pip install -r requirements.txt
+# 2. 设置环境变量
+export DASHSCOPE_API_KEY=your_api_key_here   # Linux/Mac
+# 或 Windows PowerShell:
+$env:DASHSCOPE_API_KEY = "your_api_key_here"
 
-# 3. 配置 API Key
-cp .env.example .env
-# 编辑 .env，填入你的 DASHSCOPE_API_KEY
+# 3. 构建并启动
+mvn spring-boot:run
 
-# 4. 启动后端服务
-python main.py
-# 服务运行在 http://127.0.0.1:8000
-
-# 5. 打开前端
-# 直接用浏览器打开 frontend/index.html
+# 4. 打开浏览器
+# 访问 http://localhost:8080
 ```
+
+### Windows 快速启动
+
+```powershell
+$env:DASHSCOPE_API_KEY = "your_api_key_here"
+mvn spring-boot:run
+```
+
+## API 文档
+
+### `GET /api/health`
+健康检查。
+
+**响应：**
+```json
+{ "status": "UP", "service": "novel-to-script" }
+```
+
+---
+
+### `POST /api/convert`
+将小说文本转换为 YAML 剧本。
+
+**请求体：**
+```json
+{
+  "title": "第一章 初遇",
+  "text": "小说正文内容..."
+}
+```
+
+**响应：**
+```json
+{
+  "success": true,
+  "yaml": "script:\n  title: ...",
+  "script": { ... }
+}
+```
+
+---
+
+### `POST /api/upload`
+上传 `.txt` 文件进行转换。
+
+**参数：**
+- `file`（multipart）：文本文件，最大 10MB
+- `title`（可选）：剧本标题
+
+---
+
+## YAML Schema
+
+详见 [docs/yaml-schema.md](docs/yaml-schema.md)，包含完整字段定义和设计说明。
 
 ## 项目结构
 
 ```
 QianNiu/
-├── backend/              # Python FastAPI 后端
-│   ├── main.py           # 服务入口
-│   ├── converter.py      # 小说→剧本转换核心逻辑
-│   ├── schema.py         # YAML Schema Pydantic 模型
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/             # 纯 HTML/CSS/JS 前端
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-├── docs/
-│   └── yaml-schema.md    # YAML Schema 定义文档
-└── README.md
+├── src/
+│   ├── main/
+│   │   ├── java/com/qianniu/
+│   │   │   ├── QianNiuApplication.java
+│   │   │   ├── config/AppConfig.java
+│   │   │   ├── controller/ConvertController.java
+│   │   │   ├── service/
+│   │   │   │   ├── QwenService.java        # Qwen API 调用
+│   │   │   │   └── NovelConverterService.java  # 转换核心逻辑
+│   │   │   └── model/                      # 数据模型
+│   │   └── resources/
+│   │       ├── application.yml
+│   │       └── static/                     # 前端文件
+└── docs/
+    └── yaml-schema.md                      # YAML Schema 定义
 ```
 
-## YAML 剧本格式
+## 许可证
 
-详见 [docs/yaml-schema.md](docs/yaml-schema.md)
-
-示例输出片段：
-
-```yaml
-screenplay:
-  metadata:
-    title: "改编自《示例小说》"
-    total_chapters: 3
-  characters:
-    - id: "char_001"
-      name: "林晓"
-  chapters:
-    - chapter_number: 1
-      title: "初遇"
-      scenes:
-        - scene_number: 1
-          heading:
-            location_type: "INT"
-            place: "咖啡馆"
-            time: "DAY"
-          elements:
-            - type: "action"
-              content: "林晓推开玻璃门，阳光洒在她脸上。"
-            - type: "dialogue"
-              character: "林晓"
-              content: "还好，没迟到。"
-```
-
-## Demo 视频
-
-> 视频链接：（待发布后更新）
-
-## 依赖说明
-
-| 依赖 | 版本 | 用途 |
-|------|------|------|
-| fastapi | ≥0.110 | Web 框架 |
-| uvicorn | ≥0.29 | ASGI 服务器 |
-| openai | ≥1.30 | 通义千问 API SDK（OpenAI 兼容格式）|
-| python-dotenv | ≥1.0 | 环境变量管理 |
-| pyyaml | ≥6.0 | YAML 序列化 |
-
-## 原创声明
-
-本项目为个人参赛作品，所有代码为比赛期间原创编写，未复用个人历史代码片段。
+MIT

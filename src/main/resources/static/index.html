@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 小说转剧本工具</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+    <header class="header">
+        <h1>AI 小说转剧本工具</h1>
+        <p class="subtitle">将小说文本自动转换为标准 YAML 剧本格式</p>
+    </header>
+
+    <main class="main">
+        <div class="panel input-panel">
+            <div class="panel-header">
+                <h2>输入</h2>
+                <label class="upload-btn" for="fileInput">
+                    上传 .txt 文件
+                    <input type="file" id="fileInput" accept=".txt" hidden>
+                </label>
+            </div>
+
+            <input type="text" id="titleInput" class="title-input" placeholder="剧本标题（可选）">
+
+            <textarea id="novelInput" class="novel-input"
+                      placeholder="粘贴小说文本到此处，或点击右上角上传 .txt 文件...
+
+建议每次提交 500~2000 字，效果最佳。"></textarea>
+
+            <div class="action-bar">
+                <span id="charCount" class="char-count">0 字</span>
+                <button id="convertBtn" class="convert-btn">AI 转换</button>
+            </div>
+        </div>
+
+        <div class="panel output-panel">
+            <div class="panel-header">
+                <h2>YAML 剧本输出</h2>
+                <div class="output-actions">
+                    <button id="copyBtn" class="action-btn" disabled>复制</button>
+                    <button id="downloadBtn" class="action-btn" disabled>下载</button>
+                </div>
+            </div>
+
+            <div id="statusMsg" class="status-msg hidden"></div>
+
+            <pre id="yamlOutput" class="yaml-output">等待转换...</pre>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>基于 Qwen AI | AI 生成内容仅供参考，请作者自行审阅修改</p>
+    </footer>
+</div>
+
+<div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p>AI 正在改编中，请稍候...</p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
